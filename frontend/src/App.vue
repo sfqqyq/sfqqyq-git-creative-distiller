@@ -1,5 +1,5 @@
 <script setup>
-import { Document, Finished, FolderOpened, Refresh, View } from '@element-plus/icons-vue'
+import { Document, Finished, FolderOpened, Loading, Refresh, View } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { createTask, fetchReport, fetchTask, fetchTasks, openTaskEvents } from './api/client'
@@ -34,6 +34,19 @@ const creativeTypeStats = computed(() => {
     stats[item.innovation_type] = (stats[item.innovation_type] || 0) + 1
   })
   return Object.entries(stats).map(([name, count]) => ({ name, count }))
+})
+
+const scanProgress = computed(() => {
+  const steps = activeTask.value?.steps || []
+  if (!steps.length) return 0
+  const doneCount = steps.filter((item) => ['completed', 'skipped'].includes(item.status)).length
+  return Math.round((doneCount / steps.length) * 100)
+})
+
+const runningStepName = computed(() => {
+  const steps = activeTask.value?.steps || []
+  const runningStep = steps.find((item) => item.status === 'running')
+  return runningStep?.name || activeTask.value?.task.current_step || '准备项目'
 })
 
 onMounted(async () => {
@@ -109,6 +122,15 @@ function tagType(status) {
   if (status === 'skipped') return 'info'
   return ''
 }
+
+function scanItemClass(step) {
+  return {
+    'scan-item': true,
+    'scan-item-running': step.status === 'running',
+    'scan-item-done': step.status === 'completed',
+    'scan-item-skipped': step.status === 'skipped',
+  }
+}
 </script>
 
 <template>
@@ -136,7 +158,10 @@ function tagType(status) {
           @click="openTask(item.id)"
         >
           <span class="task-name">{{ item.project_name }}</span>
-          <span class="task-meta">{{ statusText[item.status] || item.status }} · {{ item.creative_count }} 个创意</span>
+          <span class="task-meta">
+            <el-icon v-if="item.status === 'running'" class="spin-icon"><Loading /></el-icon>
+            {{ statusText[item.status] || item.status }} · {{ item.creative_count }} 个创意
+          </span>
         </button>
       </div>
     </aside>
@@ -173,7 +198,8 @@ function tagType(status) {
             <p>{{ activeTask.project.source }}</p>
           </div>
           <div class="summary-actions">
-            <el-tag :type="tagType(activeTask.task.status)" size="large">
+            <el-tag :type="tagType(activeTask.task.status)" size="large" class="status-tag">
+              <el-icon v-if="activeTask.task.status === 'running'" class="spin-icon"><Loading /></el-icon>
               {{ statusText[activeTask.task.status] || activeTask.task.status }}
             </el-tag>
             <el-button :icon="View" @click="loadReport(activeTask.task.id)">查看报告</el-button>
@@ -186,11 +212,26 @@ function tagType(status) {
               <el-icon><Finished /></el-icon>
               <span>扫描线进度</span>
             </div>
+            <div v-if="activeTask.task.status === 'running'" class="running-banner">
+              <el-icon class="spin-icon"><Loading /></el-icon>
+              <div>
+                <strong>正在处理：{{ runningStepName }}</strong>
+                <p>仓库读取和 Claude Code 分析可能需要几十秒到几分钟，请稍等。</p>
+              </div>
+            </div>
+            <el-progress
+              v-if="activeTask.steps.length"
+              :percentage="scanProgress"
+              :indeterminate="activeTask.task.status === 'running'"
+              :duration="2"
+              class="scan-progress"
+            />
             <div class="scan-list">
-              <div v-for="step in activeTask.steps" :key="step.id" class="scan-item">
+              <div v-for="step in activeTask.steps" :key="step.id" :class="scanItemClass(step)">
                 <div class="scan-title">
                   <strong>{{ step.name }}</strong>
                   <el-tag :type="tagType(step.status)" size="small">
+                    <el-icon v-if="step.status === 'running'" class="spin-icon"><Loading /></el-icon>
                     {{ statusText[step.status] || step.status }}
                   </el-tag>
                 </div>
@@ -209,6 +250,11 @@ function tagType(status) {
               <span>创意雷达</span>
             </div>
             <div class="radar">
+              <div v-if="activeTask.task.status === 'running'" class="radar-waiting">
+                <el-icon class="spin-icon"><Loading /></el-icon>
+                <strong>正在等待创意点生成</strong>
+                <p>扫描线完成后，这里会显示创意类型分布。</p>
+              </div>
               <div v-for="item in creativeTypeStats" :key="item.name" class="radar-item">
                 <span>{{ item.name }}</span>
                 <strong>{{ item.count }}</strong>
@@ -257,4 +303,3 @@ function tagType(status) {
     </main>
   </div>
 </template>
-

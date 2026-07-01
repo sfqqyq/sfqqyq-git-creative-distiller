@@ -35,10 +35,11 @@ def run_task(task_id: int, analysis_depth: str) -> None:
         task.status = "running"
         task.started_at = datetime.now()
         task.current_step = "准备项目"
+        create_scan_steps(task.id, db)
         db.commit()
 
+        mark_step(db, task.id, "README 亮点", "running", "正在准备项目：克隆仓库或读取本地路径")
         repo_path = prepare_repo(project, db)
-        create_scan_steps(task.id, db)
         mark_step(db, task.id, "README 亮点", "running", "开始调用 Claude Code Skill")
 
         result = run_creative_skill(str(repo_path), analysis_depth)
@@ -99,6 +100,9 @@ def normalize_git_source(source: str) -> str:
 
 
 def create_scan_steps(task_id: int, db: Session) -> None:
+    exists_count = db.query(AnalysisStep).filter(AnalysisStep.task_id == task_id).count()
+    if exists_count:
+        return
     for name in SCAN_LINE_NAMES:
         db.add(AnalysisStep(task_id=task_id, name=name, status="pending"))
     db.commit()
