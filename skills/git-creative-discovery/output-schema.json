@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": ["project", "scan_lines", "creative_points", "final_report_markdown"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "summary", "main_languages", "frameworks"]
+    },
+    "scan_lines": {
+      "type": "array"
+    },
+    "creative_points": {
+      "type": "array"
+    },
+    "final_report_markdown": {
+      "type": "string"
+    }
+  }
+}
+
