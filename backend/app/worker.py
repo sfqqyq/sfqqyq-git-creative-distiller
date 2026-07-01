@@ -77,7 +77,7 @@ def prepare_repo(project: Project, db: Session) -> Path:
         shutil.rmtree(target)
 
     completed = subprocess.run(
-        ["git", "clone", "--depth", "1", project.source, str(target)],
+        ["git", "clone", "--depth", "1", normalize_git_source(project.source), str(target)],
         text=True,
         capture_output=True,
         timeout=600,
@@ -89,6 +89,13 @@ def prepare_repo(project: Project, db: Session) -> Path:
     project.local_path = str(target)
     db.commit()
     return target
+
+
+def normalize_git_source(source: str) -> str:
+    if source.startswith("git@github.com:") and source.endswith(".git"):
+        repo = source.removeprefix("git@github.com:")
+        return f"https://github.com/{repo}"
+    return source
 
 
 def create_scan_steps(task_id: int, db: Session) -> None:
@@ -150,4 +157,3 @@ def save_result(db: Session, task: AnalysisTask, result: dict) -> None:
         markdown=result.get("final_report_markdown", ""),
     ))
     db.commit()
-
