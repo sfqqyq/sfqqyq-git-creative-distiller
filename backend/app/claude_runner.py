@@ -21,7 +21,7 @@ def run_creative_skill(repo_path: str, analysis_depth: str) -> dict:
     completed = subprocess.run(
         [settings.claude_command, "-p", prompt],
         cwd=repo_path,
-        env=env,
+        env=build_claude_env(env),
         text=True,
         capture_output=True,
         timeout=1800,
@@ -31,6 +31,26 @@ def run_creative_skill(repo_path: str, analysis_depth: str) -> dict:
         raise RuntimeError("Claude Code 调用失败，请检查认证、命令路径和项目访问权限")
 
     return parse_claude_json(completed.stdout)
+
+
+def build_claude_env(base_env: dict) -> dict:
+    settings = get_settings()
+    env = base_env.copy()
+    claude_vars = {
+        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+        "ANTHROPIC_BASE_URL": settings.anthropic_base_url,
+        "ANTHROPIC_AUTH_TOKEN": settings.anthropic_auth_token,
+        "ANTHROPIC_MODEL": settings.anthropic_model,
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": settings.anthropic_default_opus_model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": settings.anthropic_default_sonnet_model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": settings.anthropic_default_haiku_model,
+        "CLAUDE_CODE_SUBAGENT_MODEL": settings.claude_code_subagent_model,
+        "CLAUDE_CODE_EFFORT_LEVEL": settings.claude_code_effort_level,
+    }
+    for key, value in claude_vars.items():
+        if value:
+            env[key] = value
+    return env
 
 
 def build_prompt(repo_path: str, analysis_depth: str, skill_path: Path) -> str:
@@ -128,4 +148,3 @@ def build_demo_result(repo_path: str, analysis_depth: str) -> dict:
         ],
         "final_report_markdown": f"# {name} 创意蒸馏报告\n\n当前为演示模式，分析深度：{analysis_depth}。\n\n## 核心创意\n\n把 Git 项目转化为创意资产。",
     }
-
