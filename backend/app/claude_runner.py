@@ -72,6 +72,10 @@ def parse_claude_json(text: str) -> dict:
     if content.startswith("```"):
         lines = [line for line in content.splitlines() if not line.strip().startswith("```")]
         content = "\n".join(lines)
+    start = content.find("{")
+    end = content.rfind("}")
+    if start >= 0 and end > start:
+        content = content[start:end + 1]
     return json.loads(content)
 
 
