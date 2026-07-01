@@ -62,6 +62,11 @@ def build_prompt(repo_path: str, analysis_depth: str, skill_path: Path) -> str:
 分析深度：{analysis_depth}
 
 请只输出一个合法 JSON，不要输出 Markdown 包裹符号。
+JSON 必须能被 Python json.loads 直接解析。
+所有字符串中的双引号必须转义，所有换行必须写成 \\n。
+不要在 JSON 前后添加任何说明文字。
+不要使用单引号，不要写注释，不要写尾随逗号。
+如果证据行号不确定，line_start 和 line_end 使用 1。
 
 {skill_text}
 """
