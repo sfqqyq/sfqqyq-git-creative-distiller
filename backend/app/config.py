@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
     workspace_dir: str = "./storage/repos"
     skill_path: str = "../skills/git-creative-discovery/SKILL.md"
+    github_clone_proxy: str = ""
     claude_command: str = "claude"
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""

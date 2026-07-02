@@ -11,6 +11,10 @@ class TaskCreateResponse(BaseModel):
     project_id: int
 
 
+class TaskIncrementalRequest(BaseModel):
+    analysis_depth: str = Field(default="deep", max_length=30)
+
+
 class TaskListItem(BaseModel):
     id: int
     project_name: str
@@ -19,5 +23,6 @@ class TaskListItem(BaseModel):
     current_step: str
     creative_count: int
     created_at: str
-
-
+    started_at: str
+    finished_at: str
+    duration_seconds: int

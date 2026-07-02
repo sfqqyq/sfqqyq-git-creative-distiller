@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
 from threading import Thread
 
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db, init_db
 from app.models import AnalysisReport, AnalysisStep, AnalysisTask, CreativePoint, Project
-from app.schemas import TaskCreateRequest, TaskCreateResponse, TaskListItem
+from app.schemas import TaskCreateRequest, TaskCreateResponse, TaskIncrementalRequest, TaskListItem
 from app.worker import run_task
 
 
@@ -28,6 +29,32 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    close_orphan_tasks()
+
+
+def close_orphan_tasks() -> None:
+    """服务重启会中断后台线程，把遗留 running/pending 任务改成可重试状态。"""
+
+    with SessionLocal() as db:
+        tasks = db.query(AnalysisTask).filter(AnalysisTask.status.in_(["pending", "running"])).all()
+        if not tasks:
+            return
+        now = datetime.now()
+        message = "服务重启后，后台执行线程已中断，请重新发起增量识别。"
+        for task in tasks:
+            task.status = "failed"
+            task.current_step = "任务已中断"
+            task.error_message = message
+            task.finished_at = now
+            steps = db.query(AnalysisStep).filter(
+                AnalysisStep.task_id == task.id,
+                AnalysisStep.status.in_(["pending", "running"]),
+            ).all()
+            for step in steps:
+                step.status = "failed" if step.status == "running" else "skipped"
+                step.message = message
+                step.finished_at = now
+        db.commit()
 
 
 @app.get("/api/health")
@@ -73,6 +100,9 @@ def list_tasks(db: Session = Depends(get_db)) -> list[TaskListItem]:
             current_step=task.current_step,
             creative_count=creative_count,
             created_at=task.created_at.isoformat(timespec="seconds"),
+            started_at=task.started_at.isoformat(timespec="seconds") if task.started_at else "",
+            finished_at=task.finished_at.isoformat(timespec="seconds") if task.finished_at else "",
+            duration_seconds=task_duration_seconds(task),
         ))
     return result
 
@@ -85,7 +115,10 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> dict:
 
     project = db.get(Project, task.project_id)
     steps = db.query(AnalysisStep).filter(AnalysisStep.task_id == task.id).order_by(AnalysisStep.id.asc()).all()
-    points = db.query(CreativePoint).filter(CreativePoint.task_id == task.id).order_by(CreativePoint.score.desc()).all()
+    points = db.query(CreativePoint).filter(CreativePoint.task_id == task.id).order_by(
+        CreativePoint.source_round.desc(),
+        CreativePoint.score.desc(),
+    ).all()
 
     return {
         "task": task_to_dict(task),
@@ -97,7 +130,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> dict:
 
 @app.get("/api/tasks/{task_id}/report")
 def get_report(task_id: int, db: Session = Depends(get_db)) -> dict:
-    report = db.query(AnalysisReport).filter(AnalysisReport.task_id == task_id).first()
+    report = db.query(AnalysisReport).filter(AnalysisReport.task_id == task_id).order_by(AnalysisReport.id.desc()).first()
     if report is None:
         raise HTTPException(status_code=404, detail="报告尚未生成")
     return {
@@ -106,6 +139,73 @@ def get_report(task_id: int, db: Session = Depends(get_db)) -> dict:
         "result": json.loads(report.result_json),
         "created_at": report.created_at.isoformat(timespec="seconds"),
     }
+
+
+@app.post("/api/tasks/{task_id}/incremental", response_model=TaskCreateResponse)
+def create_incremental_task(
+    task_id: int,
+    payload: TaskIncrementalRequest,
+    db: Session = Depends(get_db),
+) -> TaskCreateResponse:
+    task = db.get(AnalysisTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status in {"pending", "running"}:
+        raise HTTPException(status_code=409, detail="任务正在执行，不能启动增量识别")
+    project = db.get(Project, task.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    task.status = "pending"
+    task.current_step = "等待增量识别"
+    task.error_message = ""
+    task.finished_at = None
+    db.commit()
+
+    thread = Thread(target=run_task, args=(task.id, payload.analysis_depth, "incremental"), daemon=True)
+    thread.start()
+    return TaskCreateResponse(task_id=task.id, project_id=project.id)
+
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: int, db: Session = Depends(get_db)) -> dict:
+    task = db.get(AnalysisTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task.status in {"pending", "running"}:
+        raise HTTPException(status_code=409, detail="任务正在执行，暂不能删除")
+
+    project_id = task.project_id
+    other_task_count = db.query(AnalysisTask).filter(
+        AnalysisTask.project_id == project_id,
+        AnalysisTask.id != task.id,
+    ).count()
+    db.query(AnalysisReport).filter(AnalysisReport.task_id == task.id).delete()
+    db.query(CreativePoint).filter(CreativePoint.task_id == task.id).delete()
+    db.query(AnalysisStep).filter(AnalysisStep.task_id == task.id).delete()
+    db.delete(task)
+
+    if other_task_count == 0:
+        project = db.get(Project, project_id)
+        if project is not None:
+            db.delete(project)
+
+    db.commit()
+    return {"status": "deleted"}
+
+
+@app.delete("/api/creative-points/{point_id}")
+def delete_creative_point(point_id: int, db: Session = Depends(get_db)) -> dict:
+    point = db.get(CreativePoint, point_id)
+    if point is None:
+        raise HTTPException(status_code=404, detail="创意点不存在")
+    task = db.get(AnalysisTask, point.task_id)
+    if task is not None and task.status in {"pending", "running"}:
+        raise HTTPException(status_code=409, detail="任务正在执行，暂时不能删除创意点")
+
+    db.delete(point)
+    db.commit()
+    return {"status": "deleted"}
 
 
 @app.get("/api/tasks/{task_id}/events")
@@ -151,7 +251,15 @@ def task_to_dict(task: AnalysisTask) -> dict:
         "created_at": task.created_at.isoformat(timespec="seconds"),
         "started_at": task.started_at.isoformat(timespec="seconds") if task.started_at else "",
         "finished_at": task.finished_at.isoformat(timespec="seconds") if task.finished_at else "",
+        "duration_seconds": task_duration_seconds(task),
     }
+
+
+def task_duration_seconds(task: AnalysisTask) -> int:
+    start_time = task.started_at or task.created_at
+    end_time = task.finished_at or datetime.now()
+    seconds = int((end_time - start_time).total_seconds())
+    return max(seconds, 0)
 
 
 def project_to_dict(project: Project | None) -> dict:
@@ -179,6 +287,10 @@ def step_to_dict(step: AnalysisStep) -> dict:
 
 
 def point_to_dict(point: CreativePoint) -> dict:
+    moveable_domains = json.loads(point.moveable_domains_json)
+    application_scenarios = json.loads(point.application_scenarios_json)
+    if len(application_scenarios) < 3:
+        application_scenarios = build_application_scenarios(point, moveable_domains)
     return {
         "id": point.id,
         "title": point.title,
@@ -188,6 +300,51 @@ def point_to_dict(point: CreativePoint) -> dict:
         "traditional_approach": point.traditional_approach,
         "new_approach": point.new_approach,
         "description": point.description,
+        "plain_explanation": point.plain_explanation,
         "evidence": json.loads(point.evidence_json),
-        "moveable_domains": json.loads(point.moveable_domains_json),
+        "moveable_domains": moveable_domains,
+        "application_scenarios": application_scenarios,
+        "source_round": point.source_round,
+        "discovery_reason": point.discovery_reason,
+        "created_at": point.created_at.isoformat(timespec="seconds"),
     }
+
+
+def build_application_scenarios(point: CreativePoint, moveable_domains: list[dict]) -> list[dict]:
+    scenarios = []
+    for item in moveable_domains:
+        if not isinstance(item, dict):
+            continue
+        scenarios.append({
+            "name": str(item.get("domain") or "可迁移场景").strip(),
+            "description": str(item.get("example") or "可以把这个思路迁移到类似业务流程中。").strip(),
+        })
+
+    fallback_items = [
+        {
+            "name": "企业内部系统改造",
+            "description": f"把「{point.title}」这类做法迁移到老系统升级中，减少推倒重来的成本。",
+        },
+        {
+            "name": "数据处理和自动化流程",
+            "description": "用于把重复、耗时、容易出错的判断流程拆成可自动执行的步骤。",
+        },
+        {
+            "name": "AI 辅助研发工具",
+            "description": "让 AI 工具不只回答问题，还能沉淀可复用的工程经验和操作策略。",
+        },
+    ]
+    scenarios.extend(fallback_items)
+
+    result = []
+    seen = set()
+    for item in scenarios:
+        name = item.get("name", "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result.append({
+            "name": name,
+            "description": item.get("description", "").strip(),
+        })
+    return result[:5]

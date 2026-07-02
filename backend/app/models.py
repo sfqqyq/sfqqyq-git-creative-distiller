@@ -69,8 +69,12 @@ class CreativePoint(Base):
     traditional_approach: Mapped[str] = mapped_column(Text, default="", nullable=False)
     new_approach: Mapped[str] = mapped_column(Text, default="", nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    plain_explanation: Mapped[str] = mapped_column(Text, default="", nullable=False)
     evidence_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     moveable_domains_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    application_scenarios_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    source_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    discovery_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, nullable=False)
 
     task: Mapped[AnalysisTask] = relationship(back_populates="points")
@@ -87,4 +91,3 @@ class AnalysisReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, nullable=False)
 
     task: Mapped[AnalysisTask] = relationship(back_populates="report")
-

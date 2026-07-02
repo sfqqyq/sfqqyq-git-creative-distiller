@@ -10,11 +10,26 @@
       "type": "array"
     },
     "creative_points": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "title",
+          "innovation_type",
+          "innovation_layer",
+          "score",
+          "traditional_approach",
+          "new_approach",
+          "description",
+          "plain_explanation",
+          "application_scenarios",
+          "evidence",
+          "moveable_domains"
+        ]
+      }
     },
     "final_report_markdown": {
       "type": "string"
     }
   }
 }
-

@@ -20,15 +20,43 @@ export async function fetchReport(taskId) {
   return request(`/api/tasks/${taskId}/report`)
 }
 
+export async function createIncrementalTask(taskId, payload = {}) {
+  return request(`/api/tasks/${taskId}/incremental`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteTask(taskId) {
+  return request(`/api/tasks/${taskId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function deleteCreativePoint(pointId) {
+  return request(`/api/creative-points/${pointId}`, {
+    method: 'DELETE',
+  })
+}
+
 export function openTaskEvents(taskId) {
   return new EventSource(`${API_BASE_URL}/api/tasks/${taskId}/events`)
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, options)
+  const method = options.method || 'GET'
+  const requestOptions = method === 'GET' ? { cache: 'no-store', ...options } : options
+  const url = method === 'GET' ? withCacheBuster(path) : path
+  const response = await fetch(`${API_BASE_URL}${url}`, requestOptions)
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new Error(data.detail || '请求失败')
   }
   return response.json()
+}
+
+function withCacheBuster(path) {
+  const separator = path.includes('?') ? '&' : '?'
+  return `${path}${separator}_t=${Date.now()}`
 }
