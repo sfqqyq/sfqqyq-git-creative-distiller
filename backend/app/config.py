@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     workspace_dir: str = "./storage/repos"
     skill_path: str = "../skills/git-creative-discovery/SKILL.md"
     github_clone_proxy: str = ""
+    auth_username: str = "admin"
+    auth_password: str = ""
+    auth_session_secret: str = ""
+    auth_session_seconds: int = 604800
+    auth_cookie_name: str = "git_creative_session"
+    auth_cookie_secure: bool = False
     claude_command: str = "claude"
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""

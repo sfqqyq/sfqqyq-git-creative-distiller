@@ -4,14 +4,16 @@ from datetime import datetime
 from pathlib import Path
 from threading import Thread
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.auth import login, logout, require_login
 from app.database import SessionLocal, get_db, init_db
 from app.models import AnalysisReport, AnalysisStep, AnalysisTask, CreativePoint, Project
-from app.schemas import TaskCreateRequest, TaskCreateResponse, TaskIncrementalRequest, TaskListItem
+from app.scenario_quality import unique_real_scenarios
+from app.schemas import LoginRequest, LoginResponse, TaskCreateRequest, TaskCreateResponse, TaskIncrementalRequest, TaskListItem
 from app.worker import run_task
 
 
@@ -62,8 +64,27 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/api/auth/login", response_model=LoginResponse)
+def auth_login(payload: LoginRequest, response: Response) -> dict:
+    return login(response, payload.username.strip(), payload.password)
+
+
+@app.post("/api/auth/logout")
+def auth_logout(response: Response) -> dict:
+    return logout(response)
+
+
+@app.get("/api/auth/me", response_model=LoginResponse)
+def auth_me(username: str = Depends(require_login)) -> dict:
+    return {"username": username}
+
+
 @app.post("/api/tasks", response_model=TaskCreateResponse)
-def create_task(payload: TaskCreateRequest, db: Session = Depends(get_db)) -> TaskCreateResponse:
+def create_task(
+    payload: TaskCreateRequest,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> TaskCreateResponse:
     source = payload.source.strip()
     if not source:
         raise HTTPException(status_code=400, detail="项目地址不能为空")
@@ -86,7 +107,10 @@ def create_task(payload: TaskCreateRequest, db: Session = Depends(get_db)) -> Ta
 
 
 @app.get("/api/tasks", response_model=list[TaskListItem])
-def list_tasks(db: Session = Depends(get_db)) -> list[TaskListItem]:
+def list_tasks(
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> list[TaskListItem]:
     tasks = db.query(AnalysisTask).order_by(AnalysisTask.id.desc()).limit(50).all()
     result = []
     for task in tasks:
@@ -108,7 +132,11 @@ def list_tasks(db: Session = Depends(get_db)) -> list[TaskListItem]:
 
 
 @app.get("/api/tasks/{task_id}")
-def get_task(task_id: int, db: Session = Depends(get_db)) -> dict:
+def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> dict:
     task = db.get(AnalysisTask, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -129,7 +157,11 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/api/tasks/{task_id}/report")
-def get_report(task_id: int, db: Session = Depends(get_db)) -> dict:
+def get_report(
+    task_id: int,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> dict:
     report = db.query(AnalysisReport).filter(AnalysisReport.task_id == task_id).order_by(AnalysisReport.id.desc()).first()
     if report is None:
         raise HTTPException(status_code=404, detail="报告尚未生成")
@@ -146,6 +178,7 @@ def create_incremental_task(
     task_id: int,
     payload: TaskIncrementalRequest,
     db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
 ) -> TaskCreateResponse:
     task = db.get(AnalysisTask, task_id)
     if task is None:
@@ -168,7 +201,11 @@ def create_incremental_task(
 
 
 @app.delete("/api/tasks/{task_id}")
-def delete_task(task_id: int, db: Session = Depends(get_db)) -> dict:
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> dict:
     task = db.get(AnalysisTask, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -195,7 +232,11 @@ def delete_task(task_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @app.delete("/api/creative-points/{point_id}")
-def delete_creative_point(point_id: int, db: Session = Depends(get_db)) -> dict:
+def delete_creative_point(
+    point_id: int,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> dict:
     point = db.get(CreativePoint, point_id)
     if point is None:
         raise HTTPException(status_code=404, detail="创意点不存在")
@@ -209,7 +250,7 @@ def delete_creative_point(point_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/api/tasks/{task_id}/events")
-async def task_events(task_id: int):
+async def task_events(task_id: int, _username: str = Depends(require_login)):
     async def event_stream():
         last_payload = ""
         while True:
@@ -288,7 +329,7 @@ def step_to_dict(step: AnalysisStep) -> dict:
 
 def point_to_dict(point: CreativePoint) -> dict:
     moveable_domains = json.loads(point.moveable_domains_json)
-    application_scenarios = json.loads(point.application_scenarios_json)
+    application_scenarios = unique_real_scenarios(json.loads(point.application_scenarios_json))
     if len(application_scenarios) < 3:
         application_scenarios = build_application_scenarios(point, moveable_domains)
     return {
@@ -319,32 +360,4 @@ def build_application_scenarios(point: CreativePoint, moveable_domains: list[dic
             "name": str(item.get("domain") or "可迁移场景").strip(),
             "description": str(item.get("example") or "可以把这个思路迁移到类似业务流程中。").strip(),
         })
-
-    fallback_items = [
-        {
-            "name": "企业内部系统改造",
-            "description": f"把「{point.title}」这类做法迁移到老系统升级中，减少推倒重来的成本。",
-        },
-        {
-            "name": "数据处理和自动化流程",
-            "description": "用于把重复、耗时、容易出错的判断流程拆成可自动执行的步骤。",
-        },
-        {
-            "name": "AI 辅助研发工具",
-            "description": "让 AI 工具不只回答问题，还能沉淀可复用的工程经验和操作策略。",
-        },
-    ]
-    scenarios.extend(fallback_items)
-
-    result = []
-    seen = set()
-    for item in scenarios:
-        name = item.get("name", "").strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        result.append({
-            "name": name,
-            "description": item.get("description", "").strip(),
-        })
-    return result[:5]
+    return unique_real_scenarios(scenarios)[:5]

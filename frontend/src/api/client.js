@@ -8,6 +8,24 @@ export async function createTask(payload) {
   })
 }
 
+export async function login(payload) {
+  return request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function logout() {
+  return request('/api/auth/logout', {
+    method: 'POST',
+  })
+}
+
+export async function fetchCurrentUser() {
+  return request('/api/auth/me')
+}
+
 export async function fetchTasks() {
   return request('/api/tasks')
 }
@@ -41,12 +59,13 @@ export async function deleteCreativePoint(pointId) {
 }
 
 export function openTaskEvents(taskId) {
-  return new EventSource(`${API_BASE_URL}/api/tasks/${taskId}/events`)
+  return new EventSource(`${API_BASE_URL}/api/tasks/${taskId}/events`, { withCredentials: true })
 }
 
 async function request(path, options = {}) {
   const method = options.method || 'GET'
-  const requestOptions = method === 'GET' ? { cache: 'no-store', ...options } : options
+  const requestOptions = method === 'GET' ? { cache: 'no-store', ...options } : { ...options }
+  requestOptions.credentials = 'include'
   const url = method === 'GET' ? withCacheBuster(path) : path
   const response = await fetch(`${API_BASE_URL}${url}`, requestOptions)
   if (!response.ok) {

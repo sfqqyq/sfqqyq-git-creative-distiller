@@ -6,6 +6,15 @@ class TaskCreateRequest(BaseModel):
     analysis_depth: str = Field(default="standard", max_length=30)
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class LoginResponse(BaseModel):
+    username: str
+
+
 class TaskCreateResponse(BaseModel):
     task_id: int
     project_id: int

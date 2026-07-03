@@ -7,8 +7,10 @@ import {
   Finished,
   FolderOpened,
   Loading,
+  Lock,
   Plus,
   Refresh,
+  SwitchButton,
   View,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -19,9 +21,12 @@ import {
   createTask,
   deleteCreativePoint,
   deleteTask,
+  fetchCurrentUser,
   fetchReport,
   fetchTask,
   fetchTasks,
+  login,
+  logout,
   openTaskEvents,
 } from './api/client'
 
@@ -45,6 +50,13 @@ const reportPanel = ref(null)
 const nowTick = ref(Date.now())
 const durationBase = ref({})
 const expandedScanGroups = ref({})
+const authChecked = ref(false)
+const currentUser = ref(null)
+const loginLoading = ref(false)
+const loginForm = ref({
+  username: 'admin',
+  password: '',
+})
 let timer = null
 
 const statusText = {
@@ -142,7 +154,7 @@ onMounted(async () => {
   timer = window.setInterval(() => {
     nowTick.value = Date.now()
   }, 1000)
-  await loadTasks()
+  await checkLogin()
 })
 
 onUnmounted(() => {
@@ -151,6 +163,53 @@ onUnmounted(() => {
   }
   eventSource.value?.close()
 })
+
+async function checkLogin() {
+  try {
+    currentUser.value = await fetchCurrentUser()
+    await loadTasks()
+  } catch {
+    currentUser.value = null
+  } finally {
+    authChecked.value = true
+  }
+}
+
+async function submitLogin() {
+  if (!loginForm.value.username.trim() || !loginForm.value.password) {
+    ElMessage.warning('请输入账号和密码')
+    return
+  }
+
+  loginLoading.value = true
+  try {
+    currentUser.value = await login({
+      username: loginForm.value.username.trim(),
+      password: loginForm.value.password,
+    })
+    loginForm.value.password = ''
+    await loadTasks()
+    ElMessage.success('登录成功')
+  } catch (error) {
+    ElMessage.error(error.message || '登录失败')
+  } finally {
+    loginLoading.value = false
+  }
+}
+
+async function submitLogout() {
+  try {
+    await logout()
+  } finally {
+    currentUser.value = null
+    activeTaskId.value = null
+    activeTask.value = null
+    report.value = null
+    tasks.value = []
+    eventSource.value?.close()
+    eventSource.value = null
+  }
+}
 
 async function submitTask() {
   if (!source.value.trim()) {
@@ -417,19 +476,63 @@ function formatSeconds(totalSeconds) {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div v-if="authChecked && !currentUser" class="login-page">
+    <section class="login-panel">
+      <div class="brand login-brand">
+        <div class="brand-mark">蒸</div>
+        <div>
+          <h1>Git 创意蒸馏器</h1>
+          <p>请先登录后使用工作台</p>
+        </div>
+      </div>
+      <el-form class="login-form" @submit.prevent="submitLogin">
+        <el-form-item>
+          <el-input
+            v-model="loginForm.username"
+            size="large"
+            placeholder="账号"
+            :prefix-icon="Lock"
+            @keyup.enter="submitLogin"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-input
+            v-model="loginForm.password"
+            size="large"
+            type="password"
+            show-password
+            placeholder="密码"
+            :prefix-icon="Lock"
+            @keyup.enter="submitLogin"
+          />
+        </el-form-item>
+        <el-button type="primary" size="large" :loading="loginLoading" @click="submitLogin">
+          登录
+        </el-button>
+      </el-form>
+    </section>
+  </div>
+
+  <div v-else-if="!authChecked" class="login-page">
+    <el-icon class="spin-icon loading-mark"><Loading /></el-icon>
+  </div>
+
+  <div v-else class="app-shell">
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">蒸</div>
         <div>
           <h1>Git 创意蒸馏器</h1>
-          <p>源码创新点分析工作台</p>
+          <p>🦊狐狸哥哥工作台</p>
         </div>
       </div>
 
       <div class="history-head">
         <span>历史任务</span>
-        <el-button :icon="Refresh" circle size="small" @click="loadTasks" />
+        <div class="sidebar-actions">
+          <el-button :icon="Refresh" circle size="small" title="刷新任务" @click="loadTasks" />
+          <el-button :icon="SwitchButton" circle size="small" title="退出登录" @click="submitLogout" />
+        </div>
       </div>
 
       <div class="task-list">

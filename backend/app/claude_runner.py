@@ -249,6 +249,7 @@ def build_missing_points_prompt(
 - 如果 scan_lines 中 candidates_count 大于 0，必须从候选中挑选 2 到 6 个真正独立的新创意点写入 creative_points。
 - 新创意点不能是已有创意点的同义改写，必须更细、更偏实现、更偏迁移价值。
 - 每个新创意点必须包含 title、innovation_type、innovation_layer、score、traditional_approach、new_approach、description、plain_explanation、application_scenarios、evidence、moveable_domains、discovery_reason。
+- application_scenarios 至少 3 个，每个都要是真实具体的使用场景，说明谁遇到什么问题、这个创意点怎么用、带来什么价值；禁止写“企业内部系统改造”“数据处理和自动化流程”“AI 辅助研发工具”等模板场景。
 - 如果你判断所有候选都已经被已有创意点覆盖，creative_points 才能为空；此时 final_report_markdown 必须逐条说明哪些候选被哪个已有创意点覆盖，不能只写“没有新增”。
 - 所有字符串中的双引号必须转义，所有换行必须写成 \\n。
 - JSON 必须能被 Python json.loads 直接解析。

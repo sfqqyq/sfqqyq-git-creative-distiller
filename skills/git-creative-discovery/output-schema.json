@@ -25,7 +25,27 @@
           "application_scenarios",
           "evidence",
           "moveable_domains"
-        ]
+        ],
+        "properties": {
+          "application_scenarios": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "required": ["name", "description"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "真实具体的场景标题，不要写泛泛行业名。"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "说明谁遇到什么问题、这个创意点怎么用、带来什么价值。"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "final_report_markdown": {

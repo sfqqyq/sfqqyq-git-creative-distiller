@@ -2,6 +2,7 @@ import json
 import re
 import shutil
 import subprocess
+from hashlib import sha1
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from app.claude_runner import run_creative_skill
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import AnalysisReport, AnalysisStep, AnalysisTask, CreativePoint, Project
+from app.scenario_quality import normalize_scenarios, unique_real_scenarios
 
 
 SCAN_LINE_NAMES = [
@@ -44,7 +46,7 @@ def run_task(task_id: int, analysis_depth: str, mode: str = "full") -> None:
         db.commit()
 
         first_step = step_name("README 亮点", round_index, mode)
-        mark_step(db, task.id, first_step, "running", "正在准备项目：克隆仓库或读取本地路径")
+        mark_step(db, task.id, first_step, "running", "正在准备项目：复用仓库缓存或读取本地路径")
         repo_path = prepare_repo(project, db)
         mark_step(db, task.id, first_step, "running", "开始调用 Claude Code Skill")
 
@@ -86,30 +88,82 @@ def prepare_repo(project: Project, db: Session) -> Path:
         db.commit()
         return path
 
-    target = settings.workspace_path / f"project-{project.id}"
-    if target.exists():
-        shutil.rmtree(target)
-
     clone_url = normalize_git_source(project.source, settings.github_clone_proxy)
-    completed = subprocess.run(
-        ["git", "clone", "--depth", "1", clone_url, str(target)],
-        text=True,
-        capture_output=True,
-        timeout=600,
-        check=False,
-    )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
-        if len(detail) > 500:
-            detail = detail[-500:]
-        message = "Git 仓库克隆失败，请检查地址和访问权限"
-        if detail:
-            message = f"{message}：{detail}"
-        raise RuntimeError(message)
+    target = cached_repo_path(settings.workspace_path, project.source)
+    if (target / ".git").exists():
+        update_cached_repo(target, clone_url)
+    else:
+        remove_broken_cache(settings.workspace_path, target)
+        clone_repo(clone_url, target)
 
     project.local_path = str(target)
     db.commit()
     return target
+
+
+def cached_repo_path(workspace_path: Path, source: str) -> Path:
+    normalized = normalize_git_source(source).removeprefix("https://").removeprefix("http://")
+    readable = re.sub(r"[^a-zA-Z0-9._-]+", "_", normalized).strip("._-")[:80] or "repo"
+    digest = sha1(normalized.encode("utf-8")).hexdigest()[:12]
+    return workspace_path / f"{readable}-{digest}"
+
+
+def clone_repo(clone_url: str, target: Path) -> None:
+    completed = run_git_command(["git", "clone", "--depth", "1", clone_url, str(target)], timeout=600)
+    if completed.returncode != 0:
+        raise RuntimeError(f"Git 仓库克隆失败，请检查地址和访问权限：{git_error_detail(completed)}")
+
+
+def update_cached_repo(target: Path, clone_url: str) -> None:
+    run_git_command(["git", "-C", str(target), "remote", "set-url", "origin", clone_url], timeout=60)
+    fetch_result = run_git_command(["git", "-C", str(target), "fetch", "--depth", "1", "--prune", "origin"], timeout=600)
+    if fetch_result.returncode != 0:
+        raise RuntimeError(f"Git 仓库更新失败，请检查地址和访问权限：{git_error_detail(fetch_result)}")
+
+    branch_result = run_git_command(["git", "-C", str(target), "rev-parse", "--abbrev-ref", "HEAD"], timeout=60)
+    branch = (branch_result.stdout or "").strip()
+    if not branch or branch == "HEAD":
+        branch = default_remote_branch(target)
+
+    reset_result = run_git_command(["git", "-C", str(target), "reset", "--hard", f"origin/{branch}"], timeout=120)
+    if reset_result.returncode != 0:
+        raise RuntimeError(f"Git 仓库缓存更新失败：{git_error_detail(reset_result)}")
+
+
+def default_remote_branch(target: Path) -> str:
+    result = run_git_command(["git", "-C", str(target), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], timeout=60)
+    value = (result.stdout or "").strip()
+    if value.startswith("origin/"):
+        return value.removeprefix("origin/")
+    return "main"
+
+
+def run_git_command(command: list[str], timeout: int) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def remove_broken_cache(workspace_path: Path, target: Path) -> None:
+    if not target.exists():
+        return
+    workspace = workspace_path.resolve()
+    resolved_target = target.resolve()
+    if workspace != resolved_target and workspace in resolved_target.parents:
+        shutil.rmtree(resolved_target)
+        return
+    raise RuntimeError("仓库缓存路径异常，已停止清理以避免误删文件")
+
+
+def git_error_detail(completed: subprocess.CompletedProcess) -> str:
+    detail = (completed.stderr or completed.stdout or "").strip()
+    if len(detail) > 500:
+        return detail[-500:]
+    return detail or "没有返回详细错误"
 
 
 def normalize_git_source(source: str, github_clone_proxy: str = "") -> str:
@@ -318,49 +372,4 @@ def build_application_scenarios(point: dict, moveable_domains: list[dict]) -> li
             "name": str(item.get("domain") or "可迁移场景").strip(),
             "description": str(item.get("example") or "可以把这个思路迁移到类似业务流程中。").strip(),
         })
-
-    title = str(point.get("title") or "这个创意").strip()
-    fallback_items = [
-        {
-            "name": "企业内部系统改造",
-            "description": f"把「{title}」这类做法迁移到老系统升级中，减少推倒重来的成本。",
-        },
-        {
-            "name": "数据处理和自动化流程",
-            "description": "用于把重复、耗时、容易出错的判断流程拆成可自动执行的步骤。",
-        },
-        {
-            "name": "AI 辅助研发工具",
-            "description": "让 AI 工具不只回答问题，还能沉淀可复用的工程经验和操作策略。",
-        },
-    ]
-    scenarios.extend(fallback_items)
-    return unique_scenarios(scenarios)[:5]
-
-
-def normalize_scenarios(items: list) -> list[dict]:
-    scenarios = []
-    for item in items:
-        if isinstance(item, str):
-            scenarios.append({"name": item, "description": ""})
-        elif isinstance(item, dict):
-            scenarios.append({
-                "name": str(item.get("name") or item.get("scenario") or item.get("domain") or "应用场景").strip(),
-                "description": str(item.get("description") or item.get("example") or "").strip(),
-            })
-    return scenarios
-
-
-def unique_scenarios(items: list[dict]) -> list[dict]:
-    result = []
-    seen = set()
-    for item in items:
-        name = item.get("name", "").strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        result.append({
-            "name": name,
-            "description": item.get("description", "").strip(),
-        })
-    return result
+    return unique_real_scenarios(scenarios)[:5]
