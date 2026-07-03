@@ -6,6 +6,7 @@ from json import JSONDecodeError
 from pathlib import Path
 
 from app.config import get_settings
+from app.scenario_quality import unique_real_scenarios
 
 
 def run_creative_skill(
@@ -33,6 +34,10 @@ def run_creative_skill(
         retry_prompt = build_missing_points_prompt(repo_path, analysis_depth, existing_points, result)
         retried = run_claude_command(settings.claude_command, retry_prompt, repo_path, claude_env, timeout=1800)
         result = parse_with_json_repair(retried.stdout, settings.claude_command, repo_path, claude_env)
+    if should_retry_weak_application_scenarios(result):
+        scenario_prompt = build_scenario_repair_prompt(result)
+        repaired = run_claude_command(settings.claude_command, scenario_prompt, repo_path, claude_env, timeout=1200)
+        result = parse_with_json_repair(repaired.stdout, settings.claude_command, repo_path, claude_env)
     return normalize_result(result, mode)
 
 
@@ -80,6 +85,14 @@ def should_retry_missing_creative_points(result: dict, mode: str) -> bool:
     return candidate_count > 0
 
 
+def should_retry_weak_application_scenarios(result: dict) -> bool:
+    for point in result.get("creative_points", []):
+        scenarios = unique_real_scenarios(point.get("application_scenarios", []))
+        if len(scenarios) < 3:
+            return True
+    return False
+
+
 def normalize_result(result: dict, mode: str) -> dict:
     result.setdefault("project", {})
     result.setdefault("scan_lines", [])
@@ -91,6 +104,24 @@ def normalize_result(result: dict, mode: str) -> dict:
         else:
             result["final_report_markdown"] = f"# {project_name} 创意蒸馏报告\n\n本轮识别返回 {len(result['creative_points'])} 个创意点。"
     return result
+
+
+def build_scenario_repair_prompt(result: dict) -> str:
+    result_text = json.dumps(result, ensure_ascii=False, indent=2)
+    return f"""
+你刚才输出的创意点中，application_scenarios 不够具体。请只修复 application_scenarios，其他字段保持原样。
+
+硬性要求：
+- 每个 creative_point 至少 3 个 application_scenarios。
+- 每个场景都必须像真实项目需求，不能只写行业名或技术分类。
+- 每个 description 至少 80 个汉字，必须包含一个具体例子，例如“比如/例如/具体到/当某个业务发生时”。
+- 每个 description 必须说清楚：谁遇到什么问题；这个创意点怎么用进去；最后减少了什么风险、成本、误报、重复维护或排查时间。
+- 禁止使用“企业内部系统改造”“数据处理和自动化流程”“AI 辅助研发工具”“可迁移场景”等模板场景名。
+- 只输出合法 JSON，结构必须和原 JSON 一致，不要输出 Markdown。
+
+原 JSON：
+{result_text}
+"""
 
 
 def build_claude_env(base_env: dict) -> dict:

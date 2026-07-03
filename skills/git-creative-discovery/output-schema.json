@@ -40,7 +40,8 @@
                 },
                 "description": {
                   "type": "string",
-                  "description": "说明谁遇到什么问题、这个创意点怎么用、带来什么价值。"
+                  "minLength": 80,
+                  "description": "说明谁遇到什么问题、这个创意点怎么用、带来什么价值；必须包含具体例子。"
                 }
               }
             }

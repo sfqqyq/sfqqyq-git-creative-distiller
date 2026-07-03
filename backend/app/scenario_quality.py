@@ -39,6 +39,18 @@ SCENARIO_VALUE_KEYWORDS = [
     "审计",
 ]
 
+SCENARIO_EXAMPLE_KEYWORDS = [
+    "例如",
+    "比如",
+    "像",
+    "具体",
+    "当",
+    "每天",
+    "如果",
+    "可以先",
+    "可以把",
+]
+
 
 def normalize_scenarios(items: list) -> list[dict]:
     scenarios = []
@@ -72,8 +84,14 @@ def unique_real_scenarios(items: list[dict]) -> list[dict]:
 def is_real_scenario(name: str, description: str) -> bool:
     if not name or name in TEMPLATE_SCENARIO_NAMES:
         return False
-    if len(description) < 18:
+    if len(description) < 50:
         return False
-    if not any(keyword in description for keyword in SCENARIO_VALUE_KEYWORDS):
+    has_value = any(keyword in description for keyword in SCENARIO_VALUE_KEYWORDS)
+    has_example = any(keyword in description for keyword in SCENARIO_EXAMPLE_KEYWORDS)
+    if len(description) >= 90 and has_value:
+        return not any(fragment in description for fragment in TEMPLATE_DESCRIPTION_FRAGMENTS)
+    if not has_value:
+        return False
+    if not has_example:
         return False
     return not any(fragment in description for fragment in TEMPLATE_DESCRIPTION_FRAGMENTS)
