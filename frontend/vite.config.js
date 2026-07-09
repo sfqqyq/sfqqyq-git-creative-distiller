@@ -5,6 +5,15 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:18000',
+        changeOrigin: true,
+      },
+      '/generated-images': {
+        target: 'http://127.0.0.1:18000',
+        changeOrigin: true,
+      },
+    },
   },
 })
-
