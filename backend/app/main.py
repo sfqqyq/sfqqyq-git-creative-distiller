@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import login, logout, require_login
@@ -125,7 +126,7 @@ def list_tasks(
     result = []
     for task in tasks:
         project = db.get(Project, task.project_id)
-        creative_count = db.query(CreativePoint).filter(CreativePoint.task_id == task.id).count()
+        creative_count = db.query(func.count(CreativePoint.id)).filter(CreativePoint.task_id == task.id).scalar() or 0
         result.append(TaskListItem(
             id=task.id,
             project_name=project.name if project else "未知项目",

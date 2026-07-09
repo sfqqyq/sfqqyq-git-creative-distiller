@@ -43,6 +43,8 @@ def ensure_columns() -> None:
             connection.execute(text("ALTER TABLE creative_points ADD COLUMN discovery_reason TEXT NOT NULL DEFAULT ''"))
         if "application_scenarios_json" not in columns:
             connection.execute(text("ALTER TABLE creative_points ADD COLUMN application_scenarios_json TEXT NOT NULL DEFAULT '[]'"))
+        if "plain_explanation" not in columns:
+            connection.execute(text("ALTER TABLE creative_points ADD COLUMN plain_explanation TEXT NOT NULL DEFAULT ''"))
         if "image_status" not in columns:
             connection.execute(text("ALTER TABLE creative_points ADD COLUMN image_status VARCHAR(30) NOT NULL DEFAULT 'idle'"))
         if "image_url" not in columns:
