@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     auth_cookie_name: str = "git_creative_session"
     auth_cookie_secure: bool = False
     minimax_api_key: str = ""
-    minimax_api_base_url: str = "https://api.minimax.io/v1"
+    minimax_api_base_url: str = "https://api.minimaxi.com/v1"
     minimax_image_model: str = "image-01"
     minimax_image_aspect_ratio: str = "16:9"
     image_output_dir: str = "./storage/images"

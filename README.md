@@ -69,7 +69,7 @@ CLAUDE_COMMAND=claude
 
 ```env
 MINIMAX_API_KEY=你的 MiniMax Key
-MINIMAX_API_BASE_URL=https://api.minimax.io/v1
+MINIMAX_API_BASE_URL=https://api.minimaxi.com/v1
 MINIMAX_IMAGE_MODEL=image-01
 MINIMAX_IMAGE_ASPECT_RATIO=16:9
 ```

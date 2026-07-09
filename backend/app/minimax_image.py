@@ -85,19 +85,28 @@ def request_minimax_image(prompt: str, settings: Settings) -> str:
 
 
 def extract_image_url(data: dict) -> str:
-    for key in ("image_urls", "images", "data"):
-        value = data.get(key)
-        if isinstance(value, list):
-            for item in value:
-                if isinstance(item, str) and item.startswith(("http://", "https://")):
-                    return item
-                if isinstance(item, dict):
-                    url = item.get("url") or item.get("image_url")
-                    if isinstance(url, str) and url.startswith(("http://", "https://")):
-                        return url
-        if isinstance(value, dict):
-            url = value.get("url") or value.get("image_url")
+    nested_url = find_url(data)
+    if nested_url:
+        return nested_url
+    return ""
+
+
+def find_url(value) -> str:
+    if isinstance(value, str):
+        return value if value.startswith(("http://", "https://")) else ""
+    if isinstance(value, list):
+        for item in value:
+            url = find_url(item)
+            if url:
+                return url
+    if isinstance(value, dict):
+        for key in ("url", "image_url"):
+            url = value.get(key)
             if isinstance(url, str) and url.startswith(("http://", "https://")):
+                return url
+        for item in value.values():
+            url = find_url(item)
+            if url:
                 return url
     return ""
 
