@@ -524,6 +524,12 @@ button {
   color: #667085;
 }
 
+.dialog-tip {
+  margin: 0 0 12px;
+  color: #475467;
+  line-height: 1.6;
+}
+
 .creative-card p {
   margin: 8px 0;
   color: #344054;

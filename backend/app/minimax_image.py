@@ -17,11 +17,10 @@ class ImageResult:
     prompt: str
 
 
-def generate_point_image(point: CreativePoint, settings: Settings) -> ImageResult:
+def generate_point_image(point: CreativePoint, settings: Settings, prompt: str) -> ImageResult:
     if not settings.minimax_api_key:
         raise ValueError("还没有配置 MINIMAX_API_KEY，无法生成释义图")
 
-    prompt = build_image_prompt(point)
     image_url = request_minimax_image(prompt, settings)
     saved_url = save_remote_image(image_url, point.id, settings)
     return ImageResult(url=saved_url, prompt=prompt)

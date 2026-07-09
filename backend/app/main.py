@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 from app.auth import login, logout, require_login
 from app.config import get_settings
 from app.database import SessionLocal, get_db, init_db
-from app.minimax_image import generate_point_image
+from app.minimax_image import build_image_prompt, generate_point_image
 from app.models import AnalysisReport, AnalysisStep, AnalysisTask, CreativePoint, Project
 from app.scenario_quality import unique_real_scenarios
-from app.schemas import LoginRequest, LoginResponse, TaskCreateRequest, TaskCreateResponse, TaskIncrementalRequest, TaskListItem
+from app.schemas import ImageGenerateRequest, LoginRequest, LoginResponse, TaskCreateRequest, TaskCreateResponse, TaskIncrementalRequest, TaskListItem
 from app.worker import run_task
 
 
@@ -259,6 +259,7 @@ def delete_creative_point(
 @app.post("/api/creative-points/{point_id}/image")
 def create_creative_point_image(
     point_id: int,
+    payload: ImageGenerateRequest,
     db: Session = Depends(get_db),
     _username: str = Depends(require_login),
 ) -> dict:
@@ -266,12 +267,14 @@ def create_creative_point_image(
     if point is None:
         raise HTTPException(status_code=404, detail="创意点不存在")
 
+    prompt = payload.prompt.strip()
     point.image_status = "generating"
+    point.image_prompt = prompt
     point.image_error = ""
     db.commit()
 
     try:
-        result = generate_point_image(point, settings)
+        result = generate_point_image(point, settings, prompt)
     except Exception as error:
         point.image_status = "failed"
         point.image_error = str(error)
@@ -287,6 +290,23 @@ def create_creative_point_image(
     db.commit()
     db.refresh(point)
     return {"creative_point": point_to_dict(point)}
+
+
+@app.post("/api/creative-points/{point_id}/image-prompt")
+def create_creative_point_image_prompt(
+    point_id: int,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> dict:
+    point = db.get(CreativePoint, point_id)
+    if point is None:
+        raise HTTPException(status_code=404, detail="创意点不存在")
+
+    prompt = build_image_prompt(point)
+    point.image_prompt = prompt
+    point.image_error = ""
+    db.commit()
+    return {"prompt": prompt, "creative_point": point_to_dict(point)}
 
 
 @app.get("/api/tasks/{task_id}/events")

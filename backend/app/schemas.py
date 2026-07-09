@@ -24,6 +24,10 @@ class TaskIncrementalRequest(BaseModel):
     analysis_depth: str = Field(default="deep", max_length=30)
 
 
+class ImageGenerateRequest(BaseModel):
+    prompt: str = Field(min_length=20, max_length=3000)
+
+
 class TaskListItem(BaseModel):
     id: int
     project_name: str

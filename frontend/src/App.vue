@@ -27,6 +27,7 @@ import {
   fetchTask,
   fetchTasks,
   generateCreativePointImage,
+  generateCreativePointImagePrompt,
   login,
   logout,
   openTaskEvents,
@@ -52,7 +53,14 @@ const reportPanel = ref(null)
 const nowTick = ref(Date.now())
 const durationBase = ref({})
 const expandedScanGroups = ref({})
+const imagePromptLoadingIds = ref({})
 const imageGeneratingIds = ref({})
+const imagePromptDialog = ref({
+  visible: false,
+  pointId: null,
+  title: '',
+  prompt: '',
+})
 const authChecked = ref(false)
 const currentUser = ref(null)
 const loginLoading = ref(false)
@@ -366,16 +374,49 @@ async function removeCreativePoint(point) {
   }
 }
 
-async function generateImage(point) {
+async function prepareImagePrompt(point) {
   if (!activeTask.value) return
 
-  imageGeneratingIds.value = {
-    ...imageGeneratingIds.value,
+  imagePromptLoadingIds.value = {
+    ...imagePromptLoadingIds.value,
     [point.id]: true,
   }
   try {
-    await generateCreativePointImage(point.id)
+    const data = await generateCreativePointImagePrompt(point.id)
     activeTask.value = await fetchTask(activeTask.value.task.id)
+    imagePromptDialog.value = {
+      visible: true,
+      pointId: point.id,
+      title: point.title,
+      prompt: data.prompt || '',
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '图片提示词生成失败')
+  } finally {
+    imagePromptLoadingIds.value = {
+      ...imagePromptLoadingIds.value,
+      [point.id]: false,
+    }
+  }
+}
+
+async function confirmGenerateImage() {
+  if (!activeTask.value || !imagePromptDialog.value.pointId) return
+  const prompt = imagePromptDialog.value.prompt.trim()
+  if (prompt.length < 20) {
+    ElMessage.warning('图片提示词太短，请补充后再生成')
+    return
+  }
+
+  const pointId = imagePromptDialog.value.pointId
+  imageGeneratingIds.value = {
+    ...imageGeneratingIds.value,
+    [pointId]: true,
+  }
+  try {
+    await generateCreativePointImage(pointId, { prompt })
+    activeTask.value = await fetchTask(activeTask.value.task.id)
+    imagePromptDialog.value.visible = false
     ElMessage.success('释义图已生成')
   } catch (error) {
     activeTask.value = await fetchTask(activeTask.value.task.id)
@@ -383,7 +424,7 @@ async function generateImage(point) {
   } finally {
     imageGeneratingIds.value = {
       ...imageGeneratingIds.value,
-      [point.id]: false,
+      [pointId]: false,
     }
   }
 }
@@ -742,11 +783,11 @@ function formatSeconds(totalSeconds) {
                   <el-button
                     :icon="Picture"
                     size="small"
-                    :loading="imageGeneratingIds[point.id] || point.image_status === 'generating'"
+                    :loading="imagePromptLoadingIds[point.id]"
                     :disabled="activeTask.task.status === 'running' || activeTask.task.status === 'pending'"
-                    @click="generateImage(point)"
+                    @click="prepareImagePrompt(point)"
                   >
-                    {{ point.image_url ? '重生成释义图' : '生成释义图' }}
+                    {{ point.image_prompt ? '调整图片提示词' : '生成图片提示词' }}
                   </el-button>
                   <el-button
                     :icon="Delete"
@@ -809,5 +850,33 @@ function formatSeconds(totalSeconds) {
         </section>
       </template>
     </main>
+
+    <el-dialog
+      v-model="imagePromptDialog.visible"
+      title="确认图片提示词"
+      width="680px"
+      class="image-prompt-dialog"
+    >
+      <p class="dialog-tip">
+        先检查这段 Prompt 是否准确表达创意点价值，可以直接修改；确认后才会调用 MiniMax 生成图片。
+      </p>
+      <el-input
+        v-model="imagePromptDialog.prompt"
+        type="textarea"
+        :rows="10"
+        maxlength="3000"
+        show-word-limit
+      />
+      <template #footer>
+        <el-button @click="imagePromptDialog.visible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="imageGeneratingIds[imagePromptDialog.pointId]"
+          @click="confirmGenerateImage"
+        >
+          确认生成图片
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>

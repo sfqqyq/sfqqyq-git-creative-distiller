@@ -58,9 +58,17 @@ export async function deleteCreativePoint(pointId) {
   })
 }
 
-export async function generateCreativePointImage(pointId) {
+export async function generateCreativePointImagePrompt(pointId) {
+  return request(`/api/creative-points/${pointId}/image-prompt`, {
+    method: 'POST',
+  })
+}
+
+export async function generateCreativePointImage(pointId, payload) {
   return request(`/api/creative-points/${pointId}/image`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   })
 }
 
