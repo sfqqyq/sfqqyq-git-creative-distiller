@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     auth_session_seconds: int = 604800
     auth_cookie_name: str = "git_creative_session"
     auth_cookie_secure: bool = False
+    minimax_api_key: str = ""
+    minimax_api_base_url: str = "https://api.minimax.io/v1"
+    minimax_image_model: str = "image-01"
+    minimax_image_aspect_ratio: str = "16:9"
+    image_output_dir: str = "./storage/images"
+    image_url_prefix: str = "/generated-images"
     claude_command: str = "claude"
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
@@ -40,6 +46,10 @@ class Settings(BaseSettings):
     @property
     def skill_file_path(self) -> Path:
         return Path(self.skill_path).resolve()
+
+    @property
+    def image_output_path(self) -> Path:
+        return Path(self.image_output_dir).resolve()
 
 
 @lru_cache

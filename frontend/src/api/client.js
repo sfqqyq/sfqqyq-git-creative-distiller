@@ -58,6 +58,12 @@ export async function deleteCreativePoint(pointId) {
   })
 }
 
+export async function generateCreativePointImage(pointId) {
+  return request(`/api/creative-points/${pointId}/image`, {
+    method: 'POST',
+  })
+}
+
 export function openTaskEvents(taskId) {
   return new EventSource(`${API_BASE_URL}/api/tasks/${taskId}/events`, { withCredentials: true })
 }

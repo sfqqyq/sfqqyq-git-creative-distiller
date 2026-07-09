@@ -6,6 +6,7 @@ import {
   Document,
   Finished,
   FolderOpened,
+  Picture,
   Loading,
   Lock,
   Plus,
@@ -25,6 +26,7 @@ import {
   fetchReport,
   fetchTask,
   fetchTasks,
+  generateCreativePointImage,
   login,
   logout,
   openTaskEvents,
@@ -50,6 +52,7 @@ const reportPanel = ref(null)
 const nowTick = ref(Date.now())
 const durationBase = ref({})
 const expandedScanGroups = ref({})
+const imageGeneratingIds = ref({})
 const authChecked = ref(false)
 const currentUser = ref(null)
 const loginLoading = ref(false)
@@ -359,6 +362,28 @@ async function removeCreativePoint(point) {
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(error.message || '删除失败')
+    }
+  }
+}
+
+async function generateImage(point) {
+  if (!activeTask.value) return
+
+  imageGeneratingIds.value = {
+    ...imageGeneratingIds.value,
+    [point.id]: true,
+  }
+  try {
+    await generateCreativePointImage(point.id)
+    activeTask.value = await fetchTask(activeTask.value.task.id)
+    ElMessage.success('释义图已生成')
+  } catch (error) {
+    activeTask.value = await fetchTask(activeTask.value.task.id)
+    ElMessage.error(error.message || '释义图生成失败')
+  } finally {
+    imageGeneratingIds.value = {
+      ...imageGeneratingIds.value,
+      [point.id]: false,
     }
   }
 }
@@ -715,6 +740,15 @@ function formatSeconds(totalSeconds) {
                 <div class="creative-actions">
                   <el-tag type="success">{{ point.score.toFixed(1) }}</el-tag>
                   <el-button
+                    :icon="Picture"
+                    size="small"
+                    :loading="imageGeneratingIds[point.id] || point.image_status === 'generating'"
+                    :disabled="activeTask.task.status === 'running' || activeTask.task.status === 'pending'"
+                    @click="generateImage(point)"
+                  >
+                    {{ point.image_url ? '重生成释义图' : '生成释义图' }}
+                  </el-button>
+                  <el-button
                     :icon="Delete"
                     circle
                     size="small"
@@ -727,6 +761,16 @@ function formatSeconds(totalSeconds) {
               <div class="creative-tags">
                 <el-tag>{{ point.innovation_type }}</el-tag>
                 <el-tag type="info">{{ point.innovation_layer }}</el-tag>
+              </div>
+              <div v-if="point.image_url || point.image_status === 'failed'" class="creative-image-box">
+                <img v-if="point.image_url" :src="point.image_url" :alt="`${point.title} 释义图`" />
+                <div v-if="point.image_status === 'failed'" class="image-error">
+                  {{ point.image_error || '释义图生成失败，请检查 MiniMax 配置后重试。' }}
+                </div>
+                <details v-if="point.image_prompt" class="image-prompt">
+                  <summary>查看图片提示词</summary>
+                  <p>{{ point.image_prompt }}</p>
+                </details>
               </div>
               <div v-if="point.plain_explanation" class="plain-explanation">
                 <strong>大白话：</strong>{{ formatPlainExplanation(point.plain_explanation) }}

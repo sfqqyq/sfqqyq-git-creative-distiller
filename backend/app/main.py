@@ -7,10 +7,13 @@ from threading import Thread
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app.auth import login, logout, require_login
+from app.config import get_settings
 from app.database import SessionLocal, get_db, init_db
+from app.minimax_image import generate_point_image
 from app.models import AnalysisReport, AnalysisStep, AnalysisTask, CreativePoint, Project
 from app.scenario_quality import unique_real_scenarios
 from app.schemas import LoginRequest, LoginResponse, TaskCreateRequest, TaskCreateResponse, TaskIncrementalRequest, TaskListItem
@@ -18,6 +21,9 @@ from app.worker import run_task
 
 
 app = FastAPI(title="Git 创意蒸馏器")
+settings = get_settings()
+settings.image_output_path.mkdir(parents=True, exist_ok=True)
+app.mount(settings.image_url_prefix, StaticFiles(directory=settings.image_output_path), name="generated-images")
 
 app.add_middleware(
     CORSMiddleware,
@@ -244,9 +250,43 @@ def delete_creative_point(
     if task is not None and task.status in {"pending", "running"}:
         raise HTTPException(status_code=409, detail="任务正在执行，暂时不能删除创意点")
 
+    remove_point_image_file(point.image_url)
     db.delete(point)
     db.commit()
     return {"status": "deleted"}
+
+
+@app.post("/api/creative-points/{point_id}/image")
+def create_creative_point_image(
+    point_id: int,
+    db: Session = Depends(get_db),
+    _username: str = Depends(require_login),
+) -> dict:
+    point = db.get(CreativePoint, point_id)
+    if point is None:
+        raise HTTPException(status_code=404, detail="创意点不存在")
+
+    point.image_status = "generating"
+    point.image_error = ""
+    db.commit()
+
+    try:
+        result = generate_point_image(point, settings)
+    except Exception as error:
+        point.image_status = "failed"
+        point.image_error = str(error)
+        db.commit()
+        raise HTTPException(status_code=500, detail=point.image_error) from error
+
+    remove_point_image_file(point.image_url)
+    point.image_status = "completed"
+    point.image_url = result.url
+    point.image_prompt = result.prompt
+    point.image_error = ""
+    point.image_created_at = datetime.now()
+    db.commit()
+    db.refresh(point)
+    return {"creative_point": point_to_dict(point)}
 
 
 @app.get("/api/tasks/{task_id}/events")
@@ -345,6 +385,11 @@ def point_to_dict(point: CreativePoint) -> dict:
         "evidence": json.loads(point.evidence_json),
         "moveable_domains": moveable_domains,
         "application_scenarios": application_scenarios,
+        "image_status": point.image_status,
+        "image_url": point.image_url,
+        "image_prompt": point.image_prompt,
+        "image_error": point.image_error,
+        "image_created_at": point.image_created_at.isoformat(timespec="seconds") if point.image_created_at else "",
         "source_round": point.source_round,
         "discovery_reason": point.discovery_reason,
         "created_at": point.created_at.isoformat(timespec="seconds"),
@@ -361,3 +406,15 @@ def build_application_scenarios(point: CreativePoint, moveable_domains: list[dic
             "description": str(item.get("example") or "可以把这个思路迁移到类似业务流程中。").strip(),
         })
     return unique_real_scenarios(scenarios)[:5]
+
+
+def remove_point_image_file(image_url: str) -> None:
+    if not image_url or not image_url.startswith(settings.image_url_prefix.rstrip("/") + "/"):
+        return
+    filename = Path(image_url).name
+    image_path = settings.image_output_path / filename
+    try:
+        if image_path.exists() and image_path.is_file():
+            image_path.unlink()
+    except OSError:
+        pass

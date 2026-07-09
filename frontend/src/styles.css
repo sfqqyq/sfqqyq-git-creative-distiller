@@ -484,6 +484,46 @@ button {
   margin: 10px 0;
 }
 
+.creative-image-box {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.creative-image-box img {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  background: #f8fafc;
+  object-fit: cover;
+}
+
+.image-error {
+  padding: 10px 12px;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  color: #b42318;
+  background: #fffbfa;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.image-prompt {
+  color: #475467;
+  font-size: 13px;
+}
+
+.image-prompt summary {
+  cursor: pointer;
+}
+
+.image-prompt p {
+  margin: 6px 0 0;
+  color: #667085;
+}
+
 .creative-card p {
   margin: 8px 0;
   color: #344054;
